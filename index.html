@@ -1,30 +1,272 @@
-<html>
+<!DOCTYPE html>
+<html lang="zh-CN">
 
 <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
-    <title>晚自习请假</title>
-    <script async src="https://tally.so/widgets/embed.js"></script>
-    <style type="text/css">
-        html {
-            margin: 0;
-            height: 100%;
-            overflow: hidden;
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>晚自习请假系统</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 0 20px;
+            color: #000000;
+            font-size: 16px;
         }
 
-        iframe {
-            position: absolute;
-            top: 0;
-            right: 0;
-            bottom: 0;
-            left: 0;
-            border: 0;
+        h2 {
+            font-size: 2rem;
+            margin: 0 0 12px;
+        }
+
+        /* logo 容器：提取内联样式 */
+        .logo-wrap {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .logo-wrap img {
+            height: 100px;
+            width: auto;
+        }
+
+        #daily-survey-container {
+            margin-top: 0px;
+        }
+
+        /* 未开放 / 加载中提示 */
+        .status-msg {
+            color: #888888;
+            padding: 20px 0;
+            text-align: center;
+            font-size: 1.2rem;
+            line-height: 1.6;
+        }
+
+        /* 开放中的说明文字 */
+        .info-text {
+            color: #888888;
+            font-size: 1.2rem;
+            line-height: 1.6;
+        }
+
+        /* 手机端整体缩小 */
+        @media (max-width: 600px) {
+            body {
+                font-size: 15px;
+                margin: 24px auto;
+            }
+
+            h2 {
+                font-size: 1.5rem;
+            }
+
+            .logo-wrap img {
+                height: 70px;
+            }
+
+            .status-msg,
+            .info-text {
+                font-size: 1.05rem;
+            }
         }
     </style>
 </head>
 
 <body>
-    <iframe data-tally-src="https://tally.so/r/rDj7AX?transparentBackground=1" width="100%" height="100%"
-        frameborder="0" marginheight="0" marginwidth="0" title="晚自习请假"></iframe>
+    <!-- 学校 logo -->
+    <div class="logo-wrap">
+        <img src="nchu.png" alt="学校 logo">
+    </div>
+
+    <main id="daily-survey-container">
+        <p class="status-msg">正在检查晚自习请假系统开放状态…</p>
+    </main>
+
+    <!-- Tally 官方脚本，必须引入 -->
+    <script src="https://tally.so/widgets/embed.js"></script>
+
+    <script>
+        (function () {
+            // ============================================================
+            // ① 配置区（只改这里）
+            // ============================================================
+
+            // 请假日期列表（YYYY-MM-DD），无需手动排序，脚本会自动排序去重
+            const surveyDays = [
+                '2026-10-25',
+                '2026-10-26',
+                '2026-10-27',
+            ];
+
+            // Tally Form ID
+            const FORM_ID = 'rDj7AX';
+
+            // 开放窗口：开始 / 结束分别相对目标日期的偏移天数与时刻
+            const WINDOW = {
+                startOffsetDays: -1,  // -1 = 前一天，0 = 当天
+                startHour: 21,
+                startMinute: 0,
+                endOffsetDays: 0,     // 0 = 当天，1 = 次日
+                endHour: 19,
+                endMinute: 0
+            };
+
+            // ============================================================
+            // ② 配置校验：写错时直接提示，避免页面卡在"正在检查"
+            // ============================================================
+            const container = document.getElementById('daily-survey-container');
+
+            function fail(msg) {
+                container.innerHTML = `<p class="status-msg">配置错误：${msg}</p>`;
+            }
+
+            const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+            if (surveyDays.length === 0) return fail('surveyDays 为空');
+            for (const d of surveyDays) {
+                if (!dateRe.test(d)) return fail(`日期格式应为 YYYY-MM-DD，当前为 "${d}"`);
+            }
+            const isHour = h => Number.isInteger(h) && h >= 0 && h <= 23;
+            const isMin = m => Number.isInteger(m) && m >= 0 && m <= 59;
+            if (!isHour(WINDOW.startHour) || !isMin(WINDOW.startMinute) ||
+                !isHour(WINDOW.endHour) || !isMin(WINDOW.endMinute)) {
+                return fail('WINDOW 的小时/分钟不合法（小时 0-23，分钟 0-59）');
+            }
+
+            // ============================================================
+            // ③ 工具函数
+            // ============================================================
+            const TZ = 'Asia/Shanghai';
+
+            const fmtDate = new Intl.DateTimeFormat('en-CA', {
+                timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit'
+            });
+
+            function addDays(dateStr, n) {
+                const base = new Date(dateStr + 'T00:00:00Z').getTime();
+                return fmtDate.format(new Date(base + n * 86400000));
+            }
+
+            function bjTime(dateStr, hh, mm) {
+                return new Date(
+                    `${dateStr}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00+08:00`
+                ).getTime();
+            }
+
+            function prettyDate(dateStr) {
+                const wd = ['日', '一', '二', '三', '四', '五', '六'][
+                    new Date(dateStr + 'T00:00:00Z').getUTCDay()
+                ];
+                return dateStr.replace(/(\d{4})-(\d{2})-(\d{2})/, '$1年$2月$3日') + ` 星期${wd}`;
+            }
+
+            function prettyTime(ts) {
+                return new Intl.DateTimeFormat('zh-CN', {
+                    timeZone: TZ, month: 'long', day: 'numeric',
+                    hour: '2-digit', minute: '2-digit', hour12: false
+                }).format(new Date(ts));
+            }
+
+            // 偏移天数 → 中文标签
+            function offsetLabel(n) {
+                if (n === -2) return '前两天';
+                if (n === -1) return '前一天';
+                if (n === 0) return '当天';
+                if (n === 1) return '次日';
+                if (n === 2) return '后两天';
+                return n > 0 ? `后${n}天` : `前${-n}天`;
+            }
+
+            // 小时分钟 → "21:00"
+            function hhmm(h, m) {
+                return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+            }
+
+            // ============================================================
+            // ④ 排序去重 + 计算当前状态
+            // ============================================================
+            const days = [...new Set(surveyDays)].sort();
+
+            const now = Date.now();
+            let activeDay = null;     // 当前开放的目标日期
+            let activeRange = null;   // 当前窗口的起止时间戳
+            let nextOpen = null;      // 下一个窗口
+
+            for (const day of days) {
+                const start = bjTime(addDays(day, WINDOW.startOffsetDays), WINDOW.startHour, WINDOW.startMinute);
+                const end = bjTime(addDays(day, WINDOW.endOffsetDays), WINDOW.endHour, WINDOW.endMinute);
+
+                if (now >= start && now < end) {
+                    activeDay = day;
+                    activeRange = { start, end };
+                    break;
+                }
+                if (now < start && (nextOpen === null || start < nextOpen.start)) {
+                    nextOpen = { day, start };
+                }
+            }
+
+            // ============================================================
+            // ⑤ 未开放
+            // ============================================================
+            if (!activeDay) {
+
+                // 文案里的时间与偏移天数全部从 WINDOW 自动生成
+                const rangeText =
+                    `晚自习${offsetLabel(WINDOW.startOffsetDays)} ${hhmm(WINDOW.startHour, WINDOW.startMinute)} ` +
+                    `至 晚自习${offsetLabel(WINDOW.endOffsetDays)} ${hhmm(WINDOW.endHour, WINDOW.endMinute)}`;
+
+                let msg = `现在不在请假系统开放时间内<br>请在 ${rangeText} 之间填写<br>`;
+                msg += nextOpen
+                    ? `下次晚自习日期：${prettyDate(nextOpen.day)}`
+                    : '近期暂无晚自习安排';
+
+                container.innerHTML = `<p class="status-msg">${msg}</p>`;
+                return;
+            }
+
+            // ============================================================
+            // ⑥ 开放中
+            // ============================================================
+
+            const startDateTime = prettyTime(activeRange.start);
+            const endDateTime = prettyTime(activeRange.end);
+
+            container.innerHTML = `
+            <h2>${prettyDate(activeDay)} 晚自习请假</h2>
+            <p class="info-text">
+                本次晚自习请假系统开放时间：${startDateTime} 至 ${endDateTime}<br>
+                仅在上述时段内可填写该日的请假表<br>
+                如有问题请联系班长胡睿骏
+            </p>
+            <iframe
+                data-tally-src="https://tally.so/embed/${FORM_ID}?date=${activeDay}&alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1"
+                loading="lazy" width="100%" height="200" frameborder="0" marginheight="0" marginwidth="0"
+                title="${prettyDate(activeDay)} 晚自习请假">
+            </iframe>`;
+
+            // ============================================================
+            // ⑦ 加载 Tally 表单（带超时保护）
+            // ============================================================
+            if (window.Tally) {
+                Tally.loadEmbeds();
+            } else {
+                let tries = 0;
+                const timer = setInterval(function () {
+                    if (window.Tally) {
+                        clearInterval(timer);
+                        Tally.loadEmbeds();
+                    } else if (++tries > 50) { // 约 5 秒仍未加载
+                        clearInterval(timer);
+                        container.insertAdjacentHTML('beforeend',
+                            '<p class="status-msg">表单加载失败，请检查网络或关闭拦截插件后刷新。</p>');
+                    }
+                }, 100);
+            }
+        })();
+    </script>
+
 </body>
 
 </html>
